@@ -2677,11 +2677,14 @@ class LibvirtConfigGuestCPUTuneIOThreadPin(LibvirtConfigObject):
             root_name="iothreadpin",
             **kwargs)
 
+        self.iothread = None
         self.cpuset = None
 
     def format_dom(self):
         root = super(LibvirtConfigGuestCPUTuneIOThreadPin, self).format_dom()
 
+        if self.iothread is not None:
+            root.set("iothread", str(self.iothread))
         if self.cpuset is not None:
             root.set("cpuset",
                      hardware.format_cpu_spec(self.cpuset))
@@ -2724,7 +2727,7 @@ class LibvirtConfigGuestCPUTune(LibvirtConfigObject):
         self.period = None
         self.vcpupin = []
         self.emulatorpin = None
-        self.iothreadpin = None
+        self.iothreadpin = []
         self.vcpusched = []
 
     def format_dom(self):
@@ -2739,8 +2742,9 @@ class LibvirtConfigGuestCPUTune(LibvirtConfigObject):
 
         if self.emulatorpin is not None:
             root.append(self.emulatorpin.format_dom())
-        if self.iothreadpin is not None:
-            root.append(self.iothreadpin.format_dom())
+        for pin in self.iothreadpin:
+            if pin.iothread is not None and pin.cpuset:
+                root.append(pin.format_dom())
         for vcpu in self.vcpupin:
             root.append(vcpu.format_dom())
         for sched in self.vcpusched:

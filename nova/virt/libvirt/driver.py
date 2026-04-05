@@ -6532,9 +6532,12 @@ class LibvirtDriver(driver.ComputeDriver):
         guest_cpu_tune.emulatorpin = (
             vconfig.LibvirtConfigGuestCPUTuneEmulatorPin())
         guest_cpu_tune.emulatorpin.cpuset = set([])
-        guest_cpu_tune.iothreadpin = (
-            vconfig.LibvirtConfigGuestCPUTuneIOThreadPin())
-        guest_cpu_tune.iothreadpin.cpuset = set([])
+        num_iothreads = int(flavor.extra_specs.get('hw:iothreads', 1))
+        for i in range(num_iothreads):
+            pin = vconfig.LibvirtConfigGuestCPUTuneIOThreadPin()
+            pin.iothread = i + 1
+            pin.cpuset = set([])
+            guest_cpu_tune.iothreadpin.append(pin)
 
         # Init NUMATune configuration
         guest_numa_tune = vconfig.LibvirtConfigGuestNUMATune()
@@ -6578,7 +6581,8 @@ class LibvirtDriver(driver.ComputeDriver):
                 # both emulator and iothreads are pinned to cores other
                 # than the instance's cores to support realtime cpus.
                 guest_cpu_tune.emulatorpin.cpuset.update(emu_pin_cpuset)
-                guest_cpu_tune.iothreadpin.cpuset.update(emu_pin_cpuset)
+                for pin in guest_cpu_tune.iothreadpin:
+                    pin.cpuset.update(emu_pin_cpuset)
 
         # TODO(berrange) When the guest has >1 NUMA node, it will
         # span multiple host NUMA nodes. By pinning emulator threads
@@ -7609,13 +7613,17 @@ class LibvirtDriver(driver.ComputeDriver):
         self._set_features(guest, instance.os_type, image_meta, flavor)
         self._set_clock(guest, instance.os_type, image_meta)
 
-        # Set IOThreads to 1 for everybody
-        guest.iothreads = 1
+        num_iothreads = int(flavor.extra_specs.get('hw:iothreads', 1))
+        guest.iothreads = num_iothreads
 
         storage_configs = self._get_guest_storage_config(context,
                 instance, image_meta, disk_info, rescue, block_device_info,
                 flavor, guest.os_type)
+        iothread_idx = 0
         for config in storage_configs:
+            if getattr(config, 'driver_iothread', None) is True:
+                config.driver_iothread = (iothread_idx % num_iothreads) + 1
+                iothread_idx += 1
             guest.add_device(config)
 
         for vif in network_info:
