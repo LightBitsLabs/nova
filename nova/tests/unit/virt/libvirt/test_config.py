@@ -1485,6 +1485,41 @@ class LibvirtConfigGuestDiskTest(LibvirtConfigBaseTest):
         self.assertNotIsInstance(obj.device_addr,
                                  config.LibvirtConfigGuestDeviceAddressDrive)
 
+    def test_config_block_iothread(self):
+        obj = config.LibvirtConfigGuestDisk()
+        obj.source_type = "block"
+        obj.source_path = "/dev/dms1234567"
+        obj.target_dev = "vda"
+        obj.target_bus = "virtio"
+        obj.driver_name = "qemu"
+        obj.driver_format = "raw"
+        obj.driver_cache = "none"
+        obj.driver_iothread = 1
+
+        xml = obj.to_xml()
+        self.assertXmlEqual(xml, """
+            <disk type="block" device="disk">
+              <driver name="qemu" type="raw" cache="none" iothread="1"/>
+              <source dev="/dev/dms1234567"/>
+              <target bus="virtio" dev="vda"/>
+            </disk>""")
+
+    def test_config_block_iothread_parse(self):
+        xml = """<disk type="block" device="disk">
+                   <driver name="qemu" type="raw" cache="none" iothread="1"/>
+                   <source dev="/dev/dms1234567"/>
+                   <target bus="virtio" dev="vda"/>
+                 </disk>"""
+        xmldoc = etree.fromstring(xml)
+
+        obj = config.LibvirtConfigGuestDisk()
+        obj.parse_dom(xmldoc)
+
+        self.assertEqual(obj.driver_iothread, 1)
+        self.assertEqual(obj.driver_name, 'qemu')
+        self.assertEqual(obj.driver_format, 'raw')
+        self.assertEqual(obj.driver_cache, 'none')
+
 
 class LibvirtConfigGuestSnapshotDiskTest(LibvirtConfigBaseTest):
 

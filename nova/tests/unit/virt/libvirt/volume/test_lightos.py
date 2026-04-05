@@ -83,3 +83,4 @@ class LibvirtLightVolumeDriverTestCase(test_volume.LibvirtVolumeBaseTestCase):
         self.assertEqual('block', tree.get('type'))
         self.assertEqual(device_path, tree.find('./source').get('dev'))
         self.assertEqual('raw', tree.find('./driver').get('type'))
+        self.assertEqual('1', tree.find('./driver').get('iothread'))

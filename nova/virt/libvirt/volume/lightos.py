@@ -37,6 +37,12 @@ class LibvirtLightOSVolumeDriver(libvirt_volume.LibvirtVolumeDriver):
             root_helper=utils.get_root_helper(),
             device_scan_attempts=CONF.libvirt.num_nvme_discover_tries)
 
+    def get_config(self, connection_info, disk_info):
+        conf = super(LibvirtLightOSVolumeDriver, self).get_config(
+            connection_info, disk_info)
+        conf.driver_iothread = 1
+        return conf
+
     def connect_volume(self, connection_info, instance):
         device_info = self.connector.connect_volume(connection_info['data'])
         LOG.debug("Connecting NVMe volume with device_info %s", device_info)
