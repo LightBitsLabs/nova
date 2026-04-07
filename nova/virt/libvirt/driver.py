@@ -7621,7 +7621,7 @@ class LibvirtDriver(driver.ComputeDriver):
                 flavor, guest.os_type)
         iothread_idx = 0
         for config in storage_configs:
-            if getattr(config, 'driver_iothread', None) is True:
+            if getattr(config, 'driver_iothread', None) is not None:
                 config.driver_iothread = (iothread_idx % num_iothreads) + 1
                 iothread_idx += 1
             guest.add_device(config)

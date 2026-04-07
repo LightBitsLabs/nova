@@ -95,4 +95,4 @@ class LibvirtLightVolumeDriverTestCase(test_volume.LibvirtVolumeBaseTestCase):
 
         conf = lightos_driver.get_config(connection_info, self.disk_info)
 
-        self.assertTrue(conf.driver_iothread)
+        self.assertEqual(1, conf.driver_iothread)
