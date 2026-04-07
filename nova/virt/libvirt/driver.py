@@ -2363,6 +2363,15 @@ class LibvirtDriver(driver.ComputeDriver):
 
         conf = self._get_volume_config(instance, connection_info, disk_info)
 
+        # Round-robin iothread assignment for hot-plug volumes
+        if conf.driver_iothread is not None:
+            num_iothreads = int(
+                instance.flavor.extra_specs.get('hw:iothreads', 1))
+            existing = sum(
+                1 for d in guest.get_all_disks()
+                if getattr(d, 'driver_iothread', None) is not None)
+            conf.driver_iothread = (existing % num_iothreads) + 1
+
         self._check_discard_for_attach_volume(conf, instance)
 
         try:
