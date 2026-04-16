@@ -5222,7 +5222,8 @@ class LibvirtConnTestCase(test.NoDBTestCase,
         image_meta = objects.ImageMeta.from_dict(self.test_image_meta)
         flavor = objects.Flavor(memory_mb=2048, vcpus=4, root_gb=496,
                                 ephemeral_gb=8128, swap=33550336, name='fake',
-                                extra_specs={}, id=42, flavorid='someflavor')
+                                extra_specs={'hw:iothreads': '2'},
+                                id=42, flavorid='someflavor')
         instance_ref.flavor = flavor
 
         caps = vconfig.LibvirtConfigCaps()
@@ -5235,6 +5236,11 @@ class LibvirtConnTestCase(test.NoDBTestCase,
         disk_info = blockinfo.get_disk_info(CONF.libvirt.virt_type,
                                             instance_ref, image_meta)
 
+        disk_a = vconfig.LibvirtConfigGuestDisk()
+        disk_a.driver_wants_iothreads = True
+        disk_b = vconfig.LibvirtConfigGuestDisk()
+        disk_b.driver_wants_iothreads = True
+
         with test.nested(
                 mock.patch.object(
                     objects.InstanceNUMATopology, "get_by_instance_uuid",
@@ -5245,11 +5251,55 @@ class LibvirtConnTestCase(test.NoDBTestCase,
                                 return_value=caps),
                 mock.patch.object(host.Host, 'get_online_cpus',
                                 return_value=set(range(8))),
+                mock.patch.object(libvirt_driver.LibvirtDriver,
+                                '_get_guest_storage_config',
+                                return_value=[disk_a, disk_b]),
                 ):
             cfg = drvr._get_guest_config(instance_ref, [],
                                         image_meta, disk_info)
 
-            self.assertEqual(1, cfg.iothreads)
+            self.assertEqual(2, cfg.iothreads)
+            self.assertEqual([1], disk_a.driver_iothread_ids)
+            self.assertEqual([2], disk_b.driver_iothread_ids)
+            self.assertFalse(disk_a.driver_wants_iothreads)
+            self.assertFalse(disk_b.driver_wants_iothreads)
+
+    def test_iothread_per_disk_rotation(self):
+        fn = libvirt_driver.LibvirtDriver._compute_iothread_assignments
+        self.assertEqual(
+            [[1, 2], [3, 4], [1, 2]],
+            fn(num_iothreads=4, iothread_per_disk=2, num_disks=3))
+
+    def test_iothread_per_disk_rotating_wrap(self):
+        fn = libvirt_driver.LibvirtDriver._compute_iothread_assignments
+        self.assertEqual(
+            [[1, 2, 3], [4, 1, 2], [3, 4, 1]],
+            fn(num_iothreads=4, iothread_per_disk=3, num_disks=3))
+
+    def test_iothread_single_disk_full_pool(self):
+        fn = libvirt_driver.LibvirtDriver._compute_iothread_assignments
+        self.assertEqual(
+            [[1, 2, 3, 4]],
+            fn(num_iothreads=4, iothread_per_disk=4, num_disks=1))
+
+    def test_attach_volume_iothread_continues_rotation(self):
+        # 4 IDs already consumed (e.g. one disk with per_disk=4, or two with
+        # per_disk=2); new disk starts at offset 4 in a pool of 4 -> wraps
+        # to id 1; with per_disk=2 it gets [1, 2].
+        fn = libvirt_driver.LibvirtDriver._compute_iothread_assignments
+        self.assertEqual(
+            [[1, 2]],
+            fn(num_iothreads=4, iothread_per_disk=2,
+               num_disks=1, start_offset=4))
+
+    def test_iothreads_disabled_no_expansion(self):
+        fn = libvirt_driver.LibvirtDriver._compute_iothread_assignments
+        self.assertEqual(
+            [], fn(num_iothreads=0, iothread_per_disk=1, num_disks=3))
+        self.assertEqual(
+            [], fn(num_iothreads=4, iothread_per_disk=0, num_disks=3))
+        self.assertEqual(
+            [], fn(num_iothreads=4, iothread_per_disk=1, num_disks=0))
 
     @mock.patch.object(host.Host, "_check_machine_type", new=mock.Mock())
     def test_get_guest_config_iothreadpin_matches_emulatorpin(self):

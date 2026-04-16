@@ -1184,7 +1184,9 @@ class LibvirtConfigGuestDisk(LibvirtConfigGuestDevice):
         self.driver_discard = None
         self.driver_io = None
         self.driver_iommu = False
-        self.driver_iothread = None
+        self.driver_iothread_ids = []
+        self.driver_queues = None
+        self.driver_wants_iothreads = False
         self.source_path = None
         self.source_protocol = None
         self.source_name = None
@@ -1292,7 +1294,7 @@ class LibvirtConfigGuestDisk(LibvirtConfigGuestDevice):
         dev.set("device", self.source_device)
         if any((self.driver_name, self.driver_format, self.driver_cache,
                 self.driver_discard, self.driver_iommu,
-                self.driver_iothread)):
+                self.driver_iothread_ids, self.driver_queues)):
             drv = etree.Element("driver")
             if self.driver_name is not None:
                 drv.set("name", self.driver_name)
@@ -1306,8 +1308,16 @@ class LibvirtConfigGuestDisk(LibvirtConfigGuestDevice):
                 drv.set("io", self.driver_io)
             if self.driver_iommu:
                 drv.set("iommu", "on")
-            if self.driver_iothread is not None:
-                drv.set("iothread", str(self.driver_iothread))
+            if self.driver_iothread_ids:
+                queues = (self.driver_queues
+                          if self.driver_queues is not None
+                          else len(self.driver_iothread_ids))
+                drv.set("queues", str(queues))
+                iothreads_elem = etree.SubElement(drv, "iothreads")
+                for tid in self.driver_iothread_ids:
+                    etree.SubElement(iothreads_elem, "iothread", id=str(tid))
+            elif self.driver_queues is not None:
+                drv.set("queues", str(self.driver_queues))
             dev.append(drv)
 
         if self.alias:
@@ -1405,9 +1415,18 @@ class LibvirtConfigGuestDisk(LibvirtConfigGuestDevice):
                 self.driver_discard = c.get('discard')
                 self.driver_io = c.get('io')
                 self.driver_iommu = c.get('iommu', '') == "on"
-                iothread = c.get('iothread')
-                if iothread is not None:
-                    self.driver_iothread = int(iothread)
+                for sub in c:
+                    if sub.tag == 'iothreads':
+                        for io in sub.findall('iothread'):
+                            tid = io.get('id')
+                            if tid is not None:
+                                self.driver_iothread_ids.append(int(tid))
+                legacy = c.get('iothread')
+                if legacy is not None and not self.driver_iothread_ids:
+                    self.driver_iothread_ids.append(int(legacy))
+                q = c.get('queues')
+                if q is not None:
+                    self.driver_queues = int(q)
             elif c.tag == 'source':
                 if self.source_type == 'file':
                     self.source_path = c.get('file')

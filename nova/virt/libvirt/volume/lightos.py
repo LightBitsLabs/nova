@@ -42,7 +42,7 @@ class LibvirtLightOSVolumeDriver(libvirt_volume.LibvirtVolumeDriver):
             connection_info, disk_info)
         data = connection_info.get('data', {})
         if data.get('iothread', False):
-            conf.driver_iothread = 1
+            conf.driver_wants_iothreads = True
         return conf
 
     def connect_volume(self, connection_info, instance):

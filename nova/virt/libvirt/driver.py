@@ -2331,6 +2331,24 @@ class LibvirtDriver(driver.ComputeDriver):
                        'id': conf.serial},
                       instance=instance)
 
+    @staticmethod
+    def _compute_iothread_assignments(num_iothreads, iothread_per_disk,
+                                      num_disks, start_offset=0):
+        """Round-robin iothread IDs across disks (1-based per libvirt).
+
+        Returns list[list[int]] of length num_disks.
+        """
+        if num_iothreads <= 0 or iothread_per_disk <= 0 or num_disks <= 0:
+            return []
+        assignments = []
+        rot = start_offset % num_iothreads
+        for _ in range(num_disks):
+            ids = [((rot + i) % num_iothreads) + 1
+                   for i in range(iothread_per_disk)]
+            assignments.append(ids)
+            rot = (rot + iothread_per_disk) % num_iothreads
+        return assignments
+
     def attach_volume(self, context, connection_info, instance, mountpoint,
                       disk_bus=None, device_type=None, encryption=None):
         guest = self._host.get_guest(instance)
@@ -2364,13 +2382,21 @@ class LibvirtDriver(driver.ComputeDriver):
         conf = self._get_volume_config(instance, connection_info, disk_info)
 
         # Round-robin iothread assignment for hot-plug volumes
-        if conf.driver_iothread is not None:
+        if getattr(conf, 'driver_wants_iothreads', False):
             num_iothreads = int(
-                instance.flavor.extra_specs.get('hw:iothreads', 1))
-            existing = sum(
-                1 for d in guest.get_all_disks()
-                if getattr(d, 'driver_iothread', None) is not None)
-            conf.driver_iothread = (existing % num_iothreads) + 1
+                instance.flavor.extra_specs.get('hw:iothreads', 0))
+            iothread_per_disk = int(
+                instance.flavor.extra_specs.get('hw:iothread_per_disk', 1))
+            if num_iothreads > 0:
+                already_assigned = sum(
+                    len(getattr(d, 'driver_iothread_ids', []))
+                    for d in guest.get_all_disks())
+                assignments = self._compute_iothread_assignments(
+                    num_iothreads, iothread_per_disk,
+                    num_disks=1, start_offset=already_assigned)
+                if assignments:
+                    conf.driver_iothread_ids = assignments[0]
+            conf.driver_wants_iothreads = False
 
         self._check_discard_for_attach_volume(conf, instance)
 
@@ -7622,18 +7648,25 @@ class LibvirtDriver(driver.ComputeDriver):
         self._set_features(guest, instance.os_type, image_meta, flavor)
         self._set_clock(guest, instance.os_type, image_meta)
 
-        num_iothreads = int(flavor.extra_specs.get('hw:iothreads', 1))
-        guest.iothreads = num_iothreads
+        num_iothreads = int(flavor.extra_specs.get('hw:iothreads', 0))
+        iothread_per_disk = int(
+            flavor.extra_specs.get('hw:iothread_per_disk', 1))
+        guest.iothreads = num_iothreads if num_iothreads > 0 else None
 
         storage_configs = self._get_guest_storage_config(context,
                 instance, image_meta, disk_info, rescue, block_device_info,
                 flavor, guest.os_type)
-        iothread_idx = 0
-        for config in storage_configs:
-            if getattr(config, 'driver_iothread', None) is not None:
-                config.driver_iothread = (iothread_idx % num_iothreads) + 1
-                iothread_idx += 1
-            guest.add_device(config)
+        if num_iothreads > 0:
+            wanting = [cfg for cfg in storage_configs
+                       if getattr(cfg, 'driver_wants_iothreads', False)]
+            assignments = self._compute_iothread_assignments(
+                num_iothreads, iothread_per_disk, len(wanting))
+            for cfg, ids in zip(wanting, assignments):
+                cfg.driver_iothread_ids = ids
+        for cfg in storage_configs:
+            if getattr(cfg, 'driver_wants_iothreads', False):
+                cfg.driver_wants_iothreads = False
+            guest.add_device(cfg)
 
         for vif in network_info:
             config = self.vif_driver.get_config(

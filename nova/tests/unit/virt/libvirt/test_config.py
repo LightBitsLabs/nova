@@ -1494,12 +1494,16 @@ class LibvirtConfigGuestDiskTest(LibvirtConfigBaseTest):
         obj.driver_name = "qemu"
         obj.driver_format = "raw"
         obj.driver_cache = "none"
-        obj.driver_iothread = 1
+        obj.driver_iothread_ids = [1]
 
         xml = obj.to_xml()
         self.assertXmlEqual(xml, """
             <disk type="block" device="disk">
-              <driver name="qemu" type="raw" cache="none" iothread="1"/>
+              <driver name="qemu" type="raw" cache="none" queues="1">
+                <iothreads>
+                  <iothread id="1"/>
+                </iothreads>
+              </driver>
               <source dev="/dev/dms1234567"/>
               <target bus="virtio" dev="vda"/>
             </disk>""")
@@ -1515,10 +1519,91 @@ class LibvirtConfigGuestDiskTest(LibvirtConfigBaseTest):
         obj = config.LibvirtConfigGuestDisk()
         obj.parse_dom(xmldoc)
 
-        self.assertEqual(obj.driver_iothread, 1)
+        self.assertEqual(obj.driver_iothread_ids, [1])
         self.assertEqual(obj.driver_name, 'qemu')
         self.assertEqual(obj.driver_format, 'raw')
         self.assertEqual(obj.driver_cache, 'none')
+
+    def test_config_block_iothread_ids_multiple(self):
+        obj = config.LibvirtConfigGuestDisk()
+        obj.source_type = "block"
+        obj.source_path = "/dev/dms1234567"
+        obj.target_dev = "vda"
+        obj.target_bus = "virtio"
+        obj.driver_name = "qemu"
+        obj.driver_format = "raw"
+        obj.driver_cache = "none"
+        obj.driver_iothread_ids = [1, 2, 3, 4]
+
+        xml = obj.to_xml()
+        self.assertXmlEqual(xml, """
+            <disk type="block" device="disk">
+              <driver name="qemu" type="raw" cache="none" queues="4">
+                <iothreads>
+                  <iothread id="1"/>
+                  <iothread id="2"/>
+                  <iothread id="3"/>
+                  <iothread id="4"/>
+                </iothreads>
+              </driver>
+              <source dev="/dev/dms1234567"/>
+              <target bus="virtio" dev="vda"/>
+            </disk>""")
+
+    def test_config_block_iothread_parse_legacy(self):
+        xml = """<disk type="block" device="disk">
+                   <driver name="qemu" type="raw" cache="none" iothread="3"/>
+                   <source dev="/dev/dms1234567"/>
+                   <target bus="virtio" dev="vda"/>
+                 </disk>"""
+        xmldoc = etree.fromstring(xml)
+        obj = config.LibvirtConfigGuestDisk()
+        obj.parse_dom(xmldoc)
+        self.assertEqual(obj.driver_iothread_ids, [3])
+
+    def test_config_block_iothread_parse_new(self):
+        xml = """<disk type="block" device="disk">
+                   <driver name="qemu" type="raw" cache="none" queues="4">
+                     <iothreads>
+                       <iothread id="1"/>
+                       <iothread id="2"/>
+                       <iothread id="3"/>
+                       <iothread id="4"/>
+                     </iothreads>
+                   </driver>
+                   <source dev="/dev/dms1234567"/>
+                   <target bus="virtio" dev="vda"/>
+                 </disk>"""
+        xmldoc = etree.fromstring(xml)
+        obj = config.LibvirtConfigGuestDisk()
+        obj.parse_dom(xmldoc)
+        self.assertEqual(obj.driver_iothread_ids, [1, 2, 3, 4])
+        self.assertEqual(obj.driver_queues, 4)
+
+    def test_config_block_iothread_explicit_queues(self):
+        obj = config.LibvirtConfigGuestDisk()
+        obj.source_type = "block"
+        obj.source_path = "/dev/dms1234567"
+        obj.target_dev = "vda"
+        obj.target_bus = "virtio"
+        obj.driver_name = "qemu"
+        obj.driver_format = "raw"
+        obj.driver_cache = "none"
+        obj.driver_iothread_ids = [1, 2]
+        obj.driver_queues = 8
+
+        xml = obj.to_xml()
+        self.assertXmlEqual(xml, """
+            <disk type="block" device="disk">
+              <driver name="qemu" type="raw" cache="none" queues="8">
+                <iothreads>
+                  <iothread id="1"/>
+                  <iothread id="2"/>
+                </iothreads>
+              </driver>
+              <source dev="/dev/dms1234567"/>
+              <target bus="virtio" dev="vda"/>
+            </disk>""")
 
 
 class LibvirtConfigGuestSnapshotDiskTest(LibvirtConfigBaseTest):

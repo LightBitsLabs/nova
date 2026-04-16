@@ -95,4 +95,17 @@ class LibvirtLightVolumeDriverTestCase(test_volume.LibvirtVolumeBaseTestCase):
 
         conf = lightos_driver.get_config(connection_info, self.disk_info)
 
-        self.assertEqual(1, conf.driver_iothread)
+        self.assertTrue(conf.driver_wants_iothreads)
+        self.assertEqual([], conf.driver_iothread_ids)
+
+    @mock.patch('os_brick.initiator.connector.InitiatorConnector.factory',
+        new=mock.Mock(return_value=mock.Mock()))
+    def test_libvirt_lightos_driver_get_config_no_iothread(self):
+        lightos_driver = lightos.LibvirtLightOSVolumeDriver(self.fake_host)
+        device_path = '/dev/fake-dev'
+        connection_info = {'data': {'device_path': device_path}}
+
+        conf = lightos_driver.get_config(connection_info, self.disk_info)
+
+        self.assertFalse(conf.driver_wants_iothreads)
+        self.assertEqual([], conf.driver_iothread_ids)
